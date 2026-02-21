@@ -4,8 +4,9 @@ nbt_to_gcode.py  —  Minecraft Structure → LEGO Wall G-code Converter
 =====================================================================
 
 Reads a Minecraft .nbt structure file (saved with the in-game Structure Block),
-extracts non-air blocks, and generates G-code for a 3D printer equipped with a
-friction-fit LEGO block placement head.
+extracts non-air blocks, maps their color to a LEGO brick color (RED or YELLOW),
+and generates G-code for a 3D printer equipped with a friction-fit LEGO block
+placement head and two colour dispensers.
 
 Layout assumptions
 ------------------
@@ -15,10 +16,17 @@ Layout assumptions
   • Minecraft Z axis     →  ignored    (wall is 1 block deep)
   • Bricks are placed row by row, bottom-to-top, left-to-right within each row
 
-Pick / place cycle
-------------------
-  1. Travel to dispenser at SAFE_Z
-  2. Descend to DISPENSER_Z — block friction-fits into nozzle socket
+Color mapping
+-------------
+  Minecraft block names are looked up in BLOCK_COLOR_MAP.
+  Unmapped blocks fall back to DEFAULT_LEGO_COLOR.
+  The nozzle visits the matching dispenser (DISPENSERS["RED"] or ["YELLOW"])
+  for each brick.
+
+Pick / place cycle  (per brick)
+--------------------------------
+  1. Travel to correct colour dispenser at SAFE_Z
+  2. Descend to dispenser Z — block friction-fits into nozzle socket
   3. Dwell DISPENSER_DWELL ms
   4. Rise to SAFE_Z
   5. Travel to target XY
@@ -50,10 +58,21 @@ except ImportError:
 #  PHYSICAL CONFIGURATION  ← edit these values to match your printer / setup
 # ═══════════════════════════════════════════════════════════════════════════════
 
-# ── Dispenser ─────────────────────────────────────────────────────────────────
-DISPENSER_X      = 0.0    # mm   X of dispenser drop point
-DISPENSER_Y      = 0.0    # mm   Y of dispenser drop point
-DISPENSER_Z      = 5.0    # mm   Nozzle Z when picking up (tune until block grabs)
+# ── Dispensers (one per LEGO colour) ──────────────────────────────────────────
+# Set x/y/z for each dispenser to match their physical locations on your bed.
+# z is the nozzle height at which the block friction-fits into the nozzle socket.
+DISPENSERS = {
+    "RED": {
+        "x": 0.0,    # mm  ← placeholder
+        "y": 0.0,    # mm  ← placeholder
+        "z": 5.0,    # mm  ← tune until block grabs reliably
+    },
+    "YELLOW": {
+        "x": 30.0,   # mm  ← placeholder
+        "y": 0.0,    # mm  ← placeholder
+        "z": 5.0,    # mm  ← tune until block grabs reliably
+    },
+}
 DISPENSER_DWELL  = 500    # ms   Pause at pick-up Z (lets block seat in socket)
 
 # ── LEGO wall origin ──────────────────────────────────────────────────────────
@@ -111,6 +130,121 @@ AIR_BLOCKS = {
 }
 
 # ═══════════════════════════════════════════════════════════════════════════════
+#  COLOUR MAPPING  —  Minecraft block name → LEGO colour
+# ═══════════════════════════════════════════════════════════════════════════════
+# Blocks not listed here fall back to DEFAULT_LEGO_COLOR.
+# Add your own entries if your pixel art uses blocks not covered below.
+
+DEFAULT_LEGO_COLOR = "RED"   # fallback for unmapped blocks
+
+BLOCK_COLOR_MAP: dict[str, str] = {
+
+    # ── RED ──────────────────────────────────────────────────────────────────
+    # Wool / concrete / powder
+    "minecraft:red_wool":                   "RED",
+    "minecraft:red_concrete":               "RED",
+    "minecraft:red_concrete_powder":        "RED",
+    # Terracotta / glazed
+    "minecraft:red_terracotta":             "RED",
+    "minecraft:red_glazed_terracotta":      "RED",
+    "minecraft:terracotta":                 "RED",   # uncoloured terracotta is brownish-red
+    # Glass
+    "minecraft:red_stained_glass":          "RED",
+    "minecraft:red_stained_glass_pane":     "RED",
+    # Ore / mineral blocks
+    "minecraft:redstone_block":             "RED",
+    "minecraft:magma_block":                "RED",
+    # Nether
+    "minecraft:nether_brick":               "RED",
+    "minecraft:nether_bricks":              "RED",
+    "minecraft:red_nether_bricks":          "RED",
+    "minecraft:red_nether_brick_slab":      "RED",
+    "minecraft:netherrack":                 "RED",
+    "minecraft:crimson_planks":             "RED",
+    "minecraft:crimson_stem":               "RED",
+    "minecraft:crimson_hyphae":             "RED",
+    "minecraft:stripped_crimson_stem":      "RED",
+    "minecraft:stripped_crimson_hyphae":    "RED",
+    "minecraft:crimson_nylium":             "RED",
+    "minecraft:shroomlight":                "RED",
+    # Mushroom
+    "minecraft:red_mushroom_block":         "RED",
+    # Candle
+    "minecraft:red_candle":                 "RED",
+    # Flowers / plants (red hues)
+    "minecraft:poppy":                      "RED",
+    "minecraft:rose_bush":                  "RED",
+    "minecraft:fire":                       "RED",
+    "minecraft:soul_fire":                  "RED",
+    # Pink  (closest to red of available LEGO colours)
+    "minecraft:pink_wool":                  "RED",
+    "minecraft:pink_concrete":              "RED",
+    "minecraft:pink_concrete_powder":       "RED",
+    "minecraft:pink_terracotta":            "RED",
+    "minecraft:pink_glazed_terracotta":     "RED",
+    "minecraft:pink_stained_glass":         "RED",
+    "minecraft:pink_stained_glass_pane":    "RED",
+    "minecraft:pink_candle":                "RED",
+    "minecraft:peony":                      "RED",
+    "minecraft:pink_petals":                "RED",
+    # Magenta (closest to red)
+    "minecraft:magenta_wool":               "RED",
+    "minecraft:magenta_concrete":           "RED",
+    "minecraft:magenta_concrete_powder":    "RED",
+    "minecraft:magenta_terracotta":         "RED",
+    "minecraft:magenta_glazed_terracotta":  "RED",
+    "minecraft:magenta_stained_glass":      "RED",
+    "minecraft:magenta_stained_glass_pane": "RED",
+    "minecraft:magenta_candle":             "RED",
+    "minecraft:allium":                     "RED",
+    "minecraft:lilac":                      "RED",
+
+    # ── YELLOW ───────────────────────────────────────────────────────────────
+    # Wool / concrete / powder
+    "minecraft:yellow_wool":                "YELLOW",
+    "minecraft:yellow_concrete":            "YELLOW",
+    "minecraft:yellow_concrete_powder":     "YELLOW",
+    # Terracotta / glazed
+    "minecraft:yellow_terracotta":          "YELLOW",
+    "minecraft:yellow_glazed_terracotta":   "YELLOW",
+    # Glass
+    "minecraft:yellow_stained_glass":       "YELLOW",
+    "minecraft:yellow_stained_glass_pane":  "YELLOW",
+    # Candle
+    "minecraft:yellow_candle":              "YELLOW",
+    # Mineral / ore blocks
+    "minecraft:gold_block":                 "YELLOW",
+    "minecraft:raw_gold_block":             "YELLOW",
+    "minecraft:glowstone":                  "YELLOW",
+    "minecraft:light":                      "YELLOW",
+    # Nature
+    "minecraft:hay_block":                  "YELLOW",
+    "minecraft:honeycomb_block":            "YELLOW",
+    "minecraft:sponge":                     "YELLOW",
+    "minecraft:wet_sponge":                 "YELLOW",
+    "minecraft:bamboo_block":               "YELLOW",
+    "minecraft:stripped_bamboo_block":      "YELLOW",
+    # Flowers / plants (yellow hues)
+    "minecraft:dandelion":                  "YELLOW",
+    "minecraft:sunflower":                  "YELLOW",
+    "minecraft:torchflower":                "YELLOW",
+    # Pumpkin / gourd
+    "minecraft:pumpkin":                    "YELLOW",
+    "minecraft:carved_pumpkin":             "YELLOW",
+    "minecraft:jack_o_lantern":             "YELLOW",
+    # Orange  (closest to yellow of available LEGO colours)
+    "minecraft:orange_wool":                "YELLOW",
+    "minecraft:orange_concrete":            "YELLOW",
+    "minecraft:orange_concrete_powder":     "YELLOW",
+    "minecraft:orange_terracotta":          "YELLOW",
+    "minecraft:orange_glazed_terracotta":   "YELLOW",
+    "minecraft:orange_stained_glass":       "YELLOW",
+    "minecraft:orange_stained_glass_pane":  "YELLOW",
+    "minecraft:orange_candle":              "YELLOW",
+    "minecraft:orange_tulip":               "YELLOW",
+}
+
+# ═══════════════════════════════════════════════════════════════════════════════
 #  PARSING
 # ═══════════════════════════════════════════════════════════════════════════════
 
@@ -120,7 +254,8 @@ def parse_structure(nbt_path: str):
 
     Returns
     -------
-    blocks   : list of (col, row) int tuples for every non-air block
+    blocks   : list of (col, row, color) tuples for every non-air block
+               color is "RED" or "YELLOW" (resolved via BLOCK_COLOR_MAP)
     num_cols : total column count (width)
     num_rows : total row count (height)
     """
@@ -130,8 +265,8 @@ def parse_structure(nbt_path: str):
     # nbtlib exposes the root compound directly; handle both wrapped and raw forms
     root = nbt.get("", nbt)  # some files wrap root under an empty-string key
 
-    size    = root["size"]
-    palette = root["palette"]
+    size       = root["size"]
+    palette    = root["palette"]
     raw_blocks = root["blocks"]
 
     num_cols = int(size[MC_COL_AXIS])
@@ -143,7 +278,8 @@ def parse_structure(nbt_path: str):
     elif depth > 1 and MC_DEPTH_SLICE is None:
         print(f"  NOTE: structure is {depth} blocks deep; merging all depth slices.")
 
-    seen = set()
+    unmapped: set[str] = set()
+    seen: dict[tuple, str] = {}   # (col, row) → color
     blocks = []
 
     for blk in raw_blocks:
@@ -161,9 +297,19 @@ def parse_structure(nbt_path: str):
         col = int(pos[MC_COL_AXIS])
         row = int(pos[MC_ROW_AXIS])
 
+        if name not in BLOCK_COLOR_MAP:
+            unmapped.add(name)
+        color = BLOCK_COLOR_MAP.get(name, DEFAULT_LEGO_COLOR)
+
         if (col, row) not in seen:
-            seen.add((col, row))
-            blocks.append((col, row))
+            seen[(col, row)] = color
+            blocks.append((col, row, color))
+
+    if unmapped:
+        print(f"  NOTE: {len(unmapped)} unmapped block type(s) → defaulting to "
+              f"{DEFAULT_LEGO_COLOR}:")
+        for name in sorted(unmapped):
+            print(f"        {name}")
 
     return blocks, num_cols, num_rows
 
@@ -173,16 +319,17 @@ def parse_structure(nbt_path: str):
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def print_preview(blocks, num_cols, num_rows):
-    """Print a small ASCII art preview of the parsed wall (row 0 at bottom)."""
+    """Print a colour-coded ASCII preview of the parsed wall (row 0 at bottom).
+    R = red brick, Y = yellow brick, . = air."""
+    COLOR_CHAR = {"RED": "R", "YELLOW": "Y"}
     grid = [['.' for _ in range(num_cols)] for _ in range(num_rows)]
-    for col, row in blocks:
+    for col, row, color in blocks:
         if 0 <= row < num_rows and 0 <= col < num_cols:
-            grid[row][col] = '#'
+            grid[row][col] = COLOR_CHAR.get(color, "?")
 
-    # Clamp preview to 80 chars wide
     preview_cols = min(num_cols, 80)
-    print(f"\n  Preview (row 0 = bottom, '#' = brick, '.' = air):")
-    for row in range(num_rows - 1, -1, -1):   # top row first in terminal
+    print(f"\n  Preview (row 0 = bottom,  R = red  Y = yellow  . = air):")
+    for row in range(num_rows - 1, -1, -1):
         line = ''.join(grid[row][:preview_cols])
         if num_cols > 80:
             line += '…'
@@ -232,15 +379,20 @@ def generate_gcode(blocks, num_cols: int, num_rows: int) -> str:
         if comment: parts.append(f"; {comment}")
         lines.append(" ".join(parts))
 
+    n_red    = sum(1 for _, _, c in blocks if c == "RED")
+    n_yellow = sum(1 for _, _, c in blocks if c == "YELLOW")
+
     # ── Header ────────────────────────────────────────────────────────────────
     emit(
         "; ============================================================",
         f"; LEGO Wall G-code  —  generated by nbt_to_gcode.py",
-        f"; Structure : {num_cols} cols wide × {num_rows} rows tall",
-        f"; Bricks    : {len(blocks)} total",
-        f"; Brick size: {BRICK_WIDTH} mm × {BRICK_HEIGHT} mm (W × H)",
-        f"; Wall X    : {WALL_ORIGIN_X:.1f} … {WALL_ORIGIN_X + num_cols * BRICK_WIDTH:.1f} mm",
-        f"; Wall Z    : {WALL_ORIGIN_Z:.1f} … {WALL_ORIGIN_Z + num_rows * BRICK_HEIGHT:.1f} mm",
+        f"; Structure  : {num_cols} cols wide × {num_rows} rows tall",
+        f"; Bricks     : {len(blocks)} total  ({n_red} red, {n_yellow} yellow)",
+        f"; Brick size : {BRICK_WIDTH} mm × {BRICK_HEIGHT} mm (W × H)",
+        f"; Wall X     : {WALL_ORIGIN_X:.1f} … {WALL_ORIGIN_X + num_cols * BRICK_WIDTH:.1f} mm",
+        f"; Wall Z     : {WALL_ORIGIN_Z:.1f} … {WALL_ORIGIN_Z + num_rows * BRICK_HEIGHT:.1f} mm",
+        f"; Disp RED   : X={DISPENSERS['RED']['x']}  Y={DISPENSERS['RED']['y']}  Z={DISPENSERS['RED']['z']}",
+        f"; Disp YELLOW: X={DISPENSERS['YELLOW']['x']}  Y={DISPENSERS['YELLOW']['y']}  Z={DISPENSERS['YELLOW']['z']}",
         "; ============================================================",
         "",
         "G21        ; mm mode",
@@ -254,20 +406,21 @@ def generate_gcode(blocks, num_cols: int, num_rows: int) -> str:
     # Sort: bottom row first, left to right within each row
     sorted_blocks = sorted(blocks, key=lambda b: (b[1], b[0]))
 
-    for idx, (col, row) in enumerate(sorted_blocks):
-        target_x = WALL_ORIGIN_X + col * BRICK_WIDTH
-        target_y = WALL_ORIGIN_Y
-        place_z  = placement_nozzle_z(row)
-        appr_z   = approach_nozzle_z(row)
+    for idx, (col, row, color) in enumerate(sorted_blocks):
+        target_x  = WALL_ORIGIN_X + col * BRICK_WIDTH
+        target_y  = WALL_ORIGIN_Y
+        place_z   = placement_nozzle_z(row)
+        appr_z    = approach_nozzle_z(row)
+        disp      = DISPENSERS[color]
 
-        emit(f"; ── Brick {idx + 1:4d}/{len(sorted_blocks)}  col={col:3d}  row={row:3d}"
-             f"  →  X={target_x:.1f}  Z={WALL_ORIGIN_Z + row * BRICK_HEIGHT:.1f} ──")
+        emit(f"; ── Brick {idx + 1:4d}/{len(sorted_blocks)}  [{color:6s}]  "
+             f"col={col:3d}  row={row:3d}  →  X={target_x:.1f}  Z={WALL_ORIGIN_Z + row * BRICK_HEIGHT:.1f} ──")
 
-        # 1. Pick up from dispenser ----------------------------------------
-        emit(";    [pick-up]")
-        move(x=DISPENSER_X, y=DISPENSER_Y, feed=FEED_TRAVEL,
-             comment="move over dispenser")
-        move(z=DISPENSER_Z, feed=FEED_APPROACH,
+        # 1. Pick up from the correct colour dispenser ----------------------
+        emit(f";    [pick-up  {color}]")
+        move(x=disp["x"], y=disp["y"], feed=FEED_TRAVEL,
+             comment=f"move over {color} dispenser")
+        move(z=disp["z"], feed=FEED_APPROACH,
              comment="descend to grab height")
         emit(f"G4 P{DISPENSER_DWELL}  ; dwell — let block seat in socket")
         move(z=SAFE_Z, feed=FEED_TRAVEL, comment="rise with brick")
@@ -323,8 +476,11 @@ def main():
 
     blocks, num_cols, num_rows = parse_structure(nbt_path)
 
+    n_red    = sum(1 for _, _, c in blocks if c == "RED")
+    n_yellow = sum(1 for _, _, c in blocks if c == "YELLOW")
+
     print(f"  Structure size : {num_cols} cols × {num_rows} rows")
-    print(f"  Non-air blocks : {len(blocks)}")
+    print(f"  Non-air blocks : {len(blocks)}  ({n_red} red, {n_yellow} yellow)")
     print(f"  Physical wall  : "
           f"{num_cols * BRICK_WIDTH:.0f} mm wide × "
           f"{num_rows * BRICK_HEIGHT:.0f} mm tall")
