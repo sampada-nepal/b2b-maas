@@ -61,28 +61,33 @@ except ImportError:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 # ── Dispensers (one per LEGO colour) ──────────────────────────────────────────
-# Set x/y/z for each dispenser to match their physical locations on your bed.
+# Coordinates are standard bed coordinates (origin = bottom-left after G28 X Y).
+# Dispensers sit near the front of the bed (small Y); wall is further back.
 # z is the nozzle height at which the block friction-fits into the nozzle socket.
 DISPENSERS = {
     "RED": {
-        "x": 0.0,    # mm  ← placeholder
-        "y": 0.0,    # mm  ← placeholder
-        "z": 5.0,    # mm  ← tune until block grabs reliably
+        "x": 39.0,   # mm  ← YELLOW + 3 studs (15 + 3×8), rightmost dispenser
+        "y": 3.0,    # mm  ← calibrated via jog
+        "z": -0.2,   # mm  ← tune until block grabs reliably (negative = below manual Z=0)
     },
     "YELLOW": {
-        "x": 30.0,   # mm  ← placeholder
-        "y": 0.0,    # mm  ← placeholder
-        "z": 5.0,    # mm  ← tune until block grabs reliably
+        "x": 15.0,   # mm  ← calibrated via jog, leftmost dispenser
+        "y": 3.0,    # mm  ← calibrated via jog
+        "z": -0.2,   # mm  ← tune until block grabs reliably (negative = below manual Z=0)
     },
 }
 DISPENSER_DWELL  = 500    # ms   Pause at pick-up Z (lets block seat in socket)
 
-# ── LEGO wall origin ──────────────────────────────────────────────────────────
-# Position of the bottom-left stud of the wall on your print bed.
-WALL_ORIGIN_X    = 50.0   # mm   X of column 0
-WALL_ORIGIN_Y    = 150.0  # mm   Y of the wall (constant — wall is 1 brick deep)
-WALL_ORIGIN_Z    = 5.0    # mm   Z of the bottom face of the very first row of bricks
-                           #      (= top of baseplate / stud tips that row 0 sits on)
+# ── LEGO wall position ────────────────────────────────────────────────────────
+# Wall runs parallel to the Y axis — columns spread along Y, rows go down in Z.
+#   WALL_X   = fixed X position for every brick
+#   col 0    = front-most column  →  Y = WALL_ORIGIN_Y
+#   col N    = back-most  column  →  Y = WALL_ORIGIN_Y + N * BRICK_WIDTH
+#   row 0    = top    row         →  Z = 0  (manually set)
+#   row N    = bottom row         →  Z = −N * BRICK_HEIGHT
+WALL_X           = 79.0   # mm   YELLOW + 8 studs (15 + 8×8 = 79) — stud-aligned
+WALL_ORIGIN_Y    = 32.0   # mm   Y of column 0 — stud-aligned (4 × 8 mm)
+WALL_ORIGIN_Z    = -5.0   # mm   Z of row 0 — 5 mm below manual Z=0 to engage studs
 
 # ── Nozzle geometry ───────────────────────────────────────────────────────────
 # NOZZLE_TO_BRICK_BOTTOM: vertical distance (mm) from the nozzle's reported Z
@@ -99,15 +104,21 @@ PUSH_EXTRA       = 1.5    # mm   typical range 0.5 – 3.0 mm
 # Bricks are oriented with their LONG axis pointing INTO the wall (Y / depth).
 # The face visible on the wall is the narrow 8 mm end — approximately square.
 # Wall depth = 16 mm (2 studs).  Studs face up so each row locks into the one below.
-BRICK_WIDTH      =  8.0   # mm   column pitch  = 1 stud (narrow / front-face axis)
+BRICK_WIDTH      =  8.0   # mm   1-stud pitch  (narrow axis, left-right along face)
+BRICK_DEPTH      = 16.0   # mm   2-stud length (long axis, runs into the wall in Y)
 BRICK_HEIGHT     =  9.6   # mm   row pitch     = 1 standard brick stacking height
 
+# ── Manual Z ──────────────────────────────────────────────────────────────────
+# X and Y home normally (G28 X Y).  Z is set manually: park the nozzle at
+# a safe height before starting, then G92 Z0 declares it as Z=0.
+
 # ── Motion speeds ─────────────────────────────────────────────────────────────
+# NOTE: all Z values are relative to your manual Z=0 start position.
 SAFE_Z           = 80.0   # mm   Z for all XY travel (clear of everything)
-FEED_TRAVEL      = 6000   # mm/min  fast XY + Z travel (no brick)
-FEED_CARRY       = 2000   # mm/min  travel speed while holding a brick
-FEED_APPROACH    = 800    # mm/min  slow descent before placement zone
-FEED_PUSH        = 150    # mm/min  very slow final push onto studs
+FEED_TRAVEL      = 9000   # mm/min  fast XY + Z travel (no brick)
+FEED_CARRY       = 4000   # mm/min  travel speed while holding a brick
+FEED_APPROACH    = 1500   # mm/min  slow descent before placement zone
+FEED_PUSH        = 300    # mm/min  very slow final push onto studs
 APPROACH_CLEARANCE = 6.0  # mm   start slowing this far above nominal place Z
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -346,23 +357,30 @@ def print_preview(blocks, num_cols, num_rows):
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-#  Z MATH
+#  COORDINATE MATH
 # ═══════════════════════════════════════════════════════════════════════════════
+# Origin is top-right.  X decreases leftward; Z decreases downward.
+
+def brick_y(col: int) -> float:
+    """Nozzle Y for a given column. Col 0 = front (WALL_ORIGIN_Y), col N = further back.
+    Spaced by BRICK_WIDTH (8 mm = 1 stud) along Y."""
+    return WALL_ORIGIN_Y + col * BRICK_WIDTH
+
 
 def placement_nozzle_z(row: int) -> float:
     """
     Nozzle Z (mm) at the moment the brick is pushed onto studs.
 
-    brick_bottom target = WALL_ORIGIN_Z + row * BRICK_HEIGHT
-    nozzle Z            = brick_bottom + NOZZLE_TO_BRICK_BOTTOM  (brick hangs below)
-    push extra          = subtract PUSH_EXTRA (nozzle goes lower to engage studs)
+    brick top target = WALL_ORIGIN_Z − row * BRICK_HEIGHT  (rows go downward)
+    nozzle Z         = brick_top − NOZZLE_TO_BRICK_BOTTOM  (brick hangs below nozzle)
+    push extra       = subtract PUSH_EXTRA (nozzle goes further down to engage studs)
     """
-    brick_bottom_target = WALL_ORIGIN_Z + row * BRICK_HEIGHT
-    return brick_bottom_target + NOZZLE_TO_BRICK_BOTTOM - PUSH_EXTRA
+    brick_top_target = WALL_ORIGIN_Z - row * BRICK_HEIGHT
+    return brick_top_target - NOZZLE_TO_BRICK_BOTTOM - PUSH_EXTRA
 
 
 def approach_nozzle_z(row: int) -> float:
-    """Nozzle Z to slow down at before the final push."""
+    """Nozzle Z to slow down at before the final push (above placement Z)."""
     return placement_nozzle_z(row) + APPROACH_CLEARANCE
 
 
@@ -396,8 +414,6 @@ def generate_gcode(blocks, num_cols: int, num_rows: int) -> str:
     timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d at %H:%M:%S UTC")
 
     # ── PrusaSlicer-compatible file header ────────────────────────────────────
-    # These comments are parsed by the PrusaSlicer G-code viewer for layer
-    # navigation and metadata display.
     emit(
         f"; generated by PrusaSlicer 2.9.4 on {timestamp}",
         "; prusaslicer:gcode_flavor = marlin2",
@@ -413,8 +429,9 @@ def generate_gcode(blocks, num_cols: int, num_rows: int) -> str:
         f"; Bricks     : {total} total  ({n_red} red, {n_yellow} yellow)",
         f"; Brick face : {BRICK_WIDTH:.0f} mm wide × {BRICK_HEIGHT} mm tall  (short / square end faces out)",
         f"; Wall depth : 16 mm  (2 studs — long axis of brick points inward)",
-        f"; Wall X     : {WALL_ORIGIN_X:.1f} – {WALL_ORIGIN_X + num_cols * BRICK_WIDTH:.1f} mm",
-        f"; Wall Z     : {WALL_ORIGIN_Z:.1f} – {WALL_ORIGIN_Z + num_rows * BRICK_HEIGHT:.1f} mm",
+        f"; Wall X     : {WALL_X:.1f} mm (fixed)",
+        f"; Wall Y     : {WALL_ORIGIN_Y:.1f} mm (front) → {WALL_ORIGIN_Y + (num_cols - 1) * BRICK_DEPTH:.1f} mm (back)",
+        f"; Wall Z     : {WALL_ORIGIN_Z:.1f} (top) → {WALL_ORIGIN_Z - num_rows * BRICK_HEIGHT:.1f} mm (bottom)",
         f"; Disp RED   : X={DISPENSERS['RED']['x']}  Y={DISPENSERS['RED']['y']}  Z={DISPENSERS['RED']['z']}",
         f"; Disp YELLOW: X={DISPENSERS['YELLOW']['x']}  Y={DISPENSERS['YELLOW']['y']}  Z={DISPENSERS['YELLOW']['z']}",
         "; ============================================================",
@@ -430,7 +447,9 @@ def generate_gcode(blocks, num_cols: int, num_rows: int) -> str:
         "M205 X8.00 Y8.00 Z0.40 ; jerk limits [mm/s]",
         "G21                    ; units: millimetres",
         "G90                    ; absolute positioning",
-        "G28 W                  ; home all axes (W = skip mesh bed leveling)",
+        "G28 X Y                ; home X and Y (bottom-left = origin)",
+        "G92 Z0                 ; declare current Z as Z=0 (manually parked before run)",
+        "M211 S0                ; disable software endstops — allow negative Z",
         "; NOTE: M104/M109/M140/M190 omitted — no hotend/bed on this machine",
         "M83                    ; relative extruder mode (E values are incremental)",
         "G92 E0                 ; reset extruder position",
@@ -439,18 +458,18 @@ def generate_gcode(blocks, num_cols: int, num_rows: int) -> str:
     move(z=SAFE_Z, feed=FEED_TRAVEL, comment="raise to safe travel height")
     emit(";TYPE:Travel", "")
 
-    # Sort: bottom row first, left to right within each row
-    sorted_blocks = sorted(blocks, key=lambda b: (b[1], b[0]))
+    # Sort: top row first (row 0 = top, builds downward), right to left mirrors natural X order
+    sorted_blocks = sorted(blocks, key=lambda b: (b[1], -b[0]))
 
     current_row = -1
 
     for idx, (col, row, color) in enumerate(sorted_blocks):
-        target_x  = WALL_ORIGIN_X + col * BRICK_WIDTH
-        target_y  = WALL_ORIGIN_Y
+        target_x  = WALL_X
+        target_y  = brick_y(col)
         place_z   = placement_nozzle_z(row)
         appr_z    = approach_nozzle_z(row)
         disp      = DISPENSERS[color]
-        layer_z   = WALL_ORIGIN_Z + row * BRICK_HEIGHT
+        layer_z   = WALL_ORIGIN_Z - row * BRICK_HEIGHT
 
         # ── PrusaSlicer layer-change marker (emitted once per LEGO row) ───
         if row != current_row:
@@ -479,10 +498,7 @@ def generate_gcode(blocks, num_cols: int, num_rows: int) -> str:
         move(z=SAFE_Z, feed=FEED_CARRY, comment="rise with brick (carry speed)")
         emit("")
 
-        # 2. Travel to target XY — E value makes this a coloured path in the
-        #    viewer (XY move, visible from the default top-down perspective).
-        #    On a machine with no extruder E is ignored; with one it moves
-        #    the motor a trivial 0.05 mm.
+        # 2. Travel to target XY
         emit(";    [travel to brick]", ";TYPE:Custom")
         move(x=target_x, y=target_y, e=0.05, feed=FEED_CARRY,
              comment=f"position over col={col} row={row} (carry speed)")
@@ -515,14 +531,12 @@ def generate_gcode(blocks, num_cols: int, num_rows: int) -> str:
     move(z=final_z, feed=720, comment="raise nozzle clear of wall")
     emit(
         "; NOTE: M104 S0 / M140 S0 / M107 omitted — no hotend/bed on this machine",
+        "M211 S1      ; re-enable software endstops",
         "M84          ; disable steppers",
         "",
     )
 
     # ── PrusaSlicer config block ───────────────────────────────────────────────
-    # PrusaSlicer scans backward from EOF for this block and warns when fewer
-    # than ~100 key=value pairs are present.  The values below are the full
-    # standard MK3S profile as exported by PrusaSlicer 2.7.4.
     emit(
         "; prusaslicer_config = begin",
         # ── Print settings ────────────────────────────────────────────────────
